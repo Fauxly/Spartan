@@ -1,12 +1,13 @@
-name: Build and Release
+name: Build Spartan and Update Repo
 
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: macos-latest # Для сборки под Apple TV нужен macOS
+    runs-on: macos-latest
 
     steps:
       - name: Checkout
@@ -17,45 +18,76 @@ jobs:
         with:
           xcode-version: latest
 
-      - name: Build Spartan
+      - name: Install Tools
         run: |
-          # Команда сборки проекта (зависит от структуры Spartan)
-          xcodebuild -project Spartan.xcodeproj -scheme Spartan -configuration Release -sdk appletvos CONFIGURATION_BUILD_DIR=./build
+          brew install dpkg ldid
 
-      - name: Prepare Deb Package
+      - name: Build Spartan (No Signing)
         run: |
-          mkdir -p layout/var/jb/Applications
-          cp -r build/Spartan.app layout/var/jb/Applications/
-          
-          # Создаем папку DEBIAN и файл control
+          # Собираем основной проект без подписи
+          xcodebuild -project Spartan.xcodeproj \
+                     -scheme Spartan \
+                     -configuration Release \
+                     -sdk appletvos \
+                     -derivedDataPath ./build \
+                     CODE_SIGNING_ALLOWED=NO \
+                     CODE_SIGNING_REQUIRED=NO \
+                     CODE_SIGN_IDENTITY="" \
+                     AD_HOC_CODE_SIGNING_ALLOWED=YES
+
+      - name: Prepare Deb Structure (Rootless)
+        run: |
+          # Создаем структуру для palera1n (rootless)
+          mkdir -p layout/var/jb/Applications/Spartan.app
           mkdir -p layout/DEBIAN
+          
+          # Копируем билд (путь может зависеть от версии Xcode, обычно в Release-appletvos)
+          cp -r build/Build/Products/Release-appletvos/Spartan.app/* layout/var/jb/Applications/Spartan.app/
+          
+          # Подписываем бинарник с помощью ldid (псевдо-подпись для джейлбрейка)
+          ldid -S layout/var/jb/Applications/Spartan.app/Spartan
+          
+          # Создаем файл control
           cat <<EOF > layout/DEBIAN/control
           Package: com.fauxly.spartan
           Name: Spartan
-          Version: 1.0.0
+          Version: 1.0.0-${{ github.run_number }}
           Architecture: iphoneos-arm64
           Maintainer: Fauxly
-          Description: File Manager for Apple TV (Rootless)
+          Description: File Manager for Apple TV 4K (Rootless)
           Author: Fauxly
           Section: Applications
           Depends: firmware (>= 15.0)
+          Icon: https://raw.githubusercontent.com/${{ github.repository }}/main/icon.png
           EOF
 
-      - name: Build .deb
-        run: |
-          # Используем dpkg для упаковки
-          brew install dpkg
-          dpkg-deb -Zxz --root-owner-group -b layout spartan_rootless.deb
-
-      - name: Update Repo Indexes
+      - name: Build .deb package
         run: |
           mkdir -p debs
-          mv spartan_rootless.deb debs/
+          # Собираем пакет
+          dpkg-deb -Zxz --root-owner-group -b layout debs/spartan_rootless.deb
+
+      - name: Generate Repository Indexes
+        run: |
+          # Сканируем папку debs и создаем индексы для PurePkg
           dpkg-scanpackages -m debs > Packages
           bzip2 -c Packages > Packages.bz2
+          
+          # Создаем файл Release
+          cat <<EOF > Release
+          Origin: Spartan Repo
+          Label: Spartan
+          Suite: stable
+          Version: 1.0
+          Codename: ios
+          Architectures: iphoneos-arm64
+          Components: main
+          Description: Официальный репозиторий Spartan для Apple TV 4K
+          EOF
 
-      - name: Deploy to Branch
+      - name: Deploy to GitHub Pages
         uses: JamesIves/github-pages-deploy-action@v4
         with:
-          folder: . # Загружаем файлы индекса и debs в GitHub Pages
-          branch: gh-pages
+          folder: .
+          branch: gh-pages # Репозиторий будет доступен через эту ветку
+          clean: false
