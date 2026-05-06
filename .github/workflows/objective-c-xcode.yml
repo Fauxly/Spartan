@@ -1,0 +1,64 @@
+name: Build Spartan DEB
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Build tvOS app
+        run: |
+          xcodebuild \
+            -scheme Spartan \
+            -configuration Release \
+            -sdk appletvos \
+            BUILD_DIR=build
+
+      - name: Locate app
+        run: |
+          APP_PATH=$(find build -name "*.app" | head -n 1)
+
+          echo "APP_PATH=$APP_PATH" >> $GITHUB_ENV
+
+          echo "Found app:"
+          echo $APP_PATH
+
+      - name: Prepare DEB structure
+        run: |
+          mkdir -p package/Applications
+          cp -r "$APP_PATH" package/Applications/
+
+          mkdir -p package/DEBIAN
+
+          cat <<EOF > package/DEBIAN/control
+Package: com.fauxly.spartan
+Name: Spartan
+Version: 1.0
+Architecture: iphoneos-arm
+Description: Spartan File Manager for Apple TV
+Maintainer: Fauxly
+Author: Fauxly
+Section: Applications
+Depends: firmware (>= 13.0)
+EOF
+
+      - name: Build DEB package
+        run: |
+          dpkg-deb --build package Spartan.deb
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Spartan-DEB
+          path: Spartan.deb
