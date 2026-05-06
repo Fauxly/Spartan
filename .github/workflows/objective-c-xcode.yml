@@ -1,70 +1,61 @@
-name: Build Spartan DEB
+name: Build and Release
 
 on:
   push:
-    branches:
-      - main
-  workflow_dispatch:
+    branches: [ main ]
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-latest # Для сборки под Apple TV нужен macOS
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Show Xcode version
-        run: xcodebuild -version
-
-      - name: Build tvOS app
-        run: |
-          xcodebuild \
-            -scheme Spartan \
-            -configuration Release \
-            -sdk appletvos \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            DEVELOPMENT_TEAM="" \
-            BUILD_DIR=build
-
-      - name: Locate app
-        run: |
-          APP_PATH=$(find build -name "*.app" | head -n 1)
-
-          echo "APP_PATH=$APP_PATH" >> $GITHUB_ENV
-
-          echo "Found app:"
-          echo "$APP_PATH"
-
-      - name: Prepare DEB structure
-        run: |
-          mkdir -p package/Applications
-          cp -r "$APP_PATH" package/Applications/
-
-          mkdir -p package/DEBIAN
-
-          echo "Package: com.fauxly.spartan" > package/DEBIAN/control
-          echo "Name: Spartan" >> package/DEBIAN/control
-          echo "Version: 1.0" >> package/DEBIAN/control
-          echo "Architecture: iphoneos-arm" >> package/DEBIAN/control
-          echo "Description: Spartan File Manager for Apple TV" >> package/DEBIAN/control
-          echo "Maintainer: Fauxly" >> package/DEBIAN/control
-          echo "Author: Fauxly" >> package/DEBIAN/control
-          echo "Section: Applications" >> package/DEBIAN/control
-          echo "Depends: firmware (>= 13.0)" >> package/DEBIAN/control
-
-      - name: Build DEB package
-        run: |
-          dpkg-deb --build package Spartan.deb
-
-      - name: Verify DEB
-        run: |
-          dpkg-deb --info Spartan.deb
-
-      - name: Upload DEB artifact
-        uses: actions/upload-artifact@v4
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1
         with:
-          name: Spartan-DEB
-          path: Spartan.deb
+          xcode-version: latest
+
+      - name: Build Spartan
+        run: |
+          # Команда сборки проекта (зависит от структуры Spartan)
+          xcodebuild -project Spartan.xcodeproj -scheme Spartan -configuration Release -sdk appletvos CONFIGURATION_BUILD_DIR=./build
+
+      - name: Prepare Deb Package
+        run: |
+          mkdir -p layout/var/jb/Applications
+          cp -r build/Spartan.app layout/var/jb/Applications/
+          
+          # Создаем папку DEBIAN и файл control
+          mkdir -p layout/DEBIAN
+          cat <<EOF > layout/DEBIAN/control
+          Package: com.fauxly.spartan
+          Name: Spartan
+          Version: 1.0.0
+          Architecture: iphoneos-arm64
+          Maintainer: Fauxly
+          Description: File Manager for Apple TV (Rootless)
+          Author: Fauxly
+          Section: Applications
+          Depends: firmware (>= 15.0)
+          EOF
+
+      - name: Build .deb
+        run: |
+          # Используем dpkg для упаковки
+          brew install dpkg
+          dpkg-deb -Zxz --root-owner-group -b layout spartan_rootless.deb
+
+      - name: Update Repo Indexes
+        run: |
+          mkdir -p debs
+          mv spartan_rootless.deb debs/
+          dpkg-scanpackages -m debs > Packages
+          bzip2 -c Packages > Packages.bz2
+
+      - name: Deploy to Branch
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: . # Загружаем файлы индекса и debs в GitHub Pages
+          branch: gh-pages
