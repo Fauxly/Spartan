@@ -17,6 +17,9 @@ jobs:
       - name: Show Xcode version
         run: xcodebuild -version
 
+      - name: List schemes
+        run: xcodebuild -list
+
       - name: Build tvOS app
         run: |
           xcodebuild \
@@ -32,7 +35,7 @@ jobs:
           echo "APP_PATH=$APP_PATH" >> $GITHUB_ENV
 
           echo "Found app:"
-          echo $APP_PATH
+          echo "$APP_PATH"
 
       - name: Prepare DEB structure
         run: |
@@ -41,23 +44,29 @@ jobs:
 
           mkdir -p package/DEBIAN
 
-          cat <<EOF > package/DEBIAN/control
-Package: com.fauxly.spartan
-Name: Spartan
-Version: 1.0
-Architecture: iphoneos-arm
-Description: Spartan File Manager for Apple TV
-Maintainer: Fauxly
-Author: Fauxly
-Section: Applications
-Depends: firmware (>= 13.0)
-EOF
+          echo "Package: com.fauxly.spartan" > package/DEBIAN/control
+          echo "Name: Spartan" >> package/DEBIAN/control
+          echo "Version: 1.0" >> package/DEBIAN/control
+          echo "Architecture: iphoneos-arm" >> package/DEBIAN/control
+          echo "Description: Spartan File Manager for Apple TV" >> package/DEBIAN/control
+          echo "Maintainer: Fauxly" >> package/DEBIAN/control
+          echo "Author: Fauxly" >> package/DEBIAN/control
+          echo "Section: Applications" >> package/DEBIAN/control
+          echo "Depends: firmware (>= 13.0)" >> package/DEBIAN/control
+
+      - name: Show control file
+        run: |
+          cat package/DEBIAN/control
 
       - name: Build DEB package
         run: |
           dpkg-deb --build package Spartan.deb
 
-      - name: Upload artifact
+      - name: Verify DEB
+        run: |
+          dpkg-deb --info Spartan.deb
+
+      - name: Upload DEB artifact
         uses: actions/upload-artifact@v4
         with:
           name: Spartan-DEB
