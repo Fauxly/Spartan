@@ -17,15 +17,16 @@ jobs:
       - name: Show Xcode version
         run: xcodebuild -version
 
-      - name: List schemes
-        run: xcodebuild -list
-
       - name: Build tvOS app
         run: |
           xcodebuild \
             -scheme Spartan \
             -configuration Release \
             -sdk appletvos \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM="" \
             BUILD_DIR=build
 
       - name: Locate app
@@ -53,10 +54,6 @@ jobs:
           echo "Author: Fauxly" >> package/DEBIAN/control
           echo "Section: Applications" >> package/DEBIAN/control
           echo "Depends: firmware (>= 13.0)" >> package/DEBIAN/control
-
-      - name: Show control file
-        run: |
-          cat package/DEBIAN/control
 
       - name: Build DEB package
         run: |
