@@ -1,93 +1,72 @@
-name: Build Spartan and Update Repo
+name: Build Spartan DEB
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-15
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Xcode
+      - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: latest
+          xcode-version: latest-stable
 
-      - name: Install Tools
+      - name: Resolve Packages
         run: |
-          brew install dpkg ldid
+          xcodebuild -resolvePackageDependencies
 
-      - name: Build Spartan (No Signing)
+      - name: Build Spartan
         run: |
-          # Собираем основной проект без подписи
-          xcodebuild -project Spartan.xcodeproj \
-                     -scheme Spartan \
-                     -configuration Release \
-                     -sdk appletvos \
-                     -derivedDataPath ./build \
-                     CODE_SIGNING_ALLOWED=NO \
-                     CODE_SIGNING_REQUIRED=NO \
-                     CODE_SIGN_IDENTITY="" \
-                     AD_HOC_CODE_SIGNING_ALLOWED=YES
+          xcodebuild \
+            -project Spartan.xcodeproj \
+            -scheme Spartan \
+            -configuration Release \
+            -sdk appletvos \
+            build
 
-      - name: Prepare Deb Structure (Rootless)
+      - name: Find App
         run: |
-          # Создаем структуру для palera1n (rootless)
-          mkdir -p layout/var/jb/Applications/Spartan.app
-          mkdir -p layout/DEBIAN
-          
-          # Копируем билд (путь может зависеть от версии Xcode, обычно в Release-appletvos)
-          cp -r build/Build/Products/Release-appletvos/Spartan.app/* layout/var/jb/Applications/Spartan.app/
-          
-          # Подписываем бинарник с помощью ldid (псевдо-подпись для джейлбрейка)
-          ldid -S layout/var/jb/Applications/Spartan.app/Spartan
-          
-          # Создаем файл control
-          cat <<EOF > layout/DEBIAN/control
-          Package: com.fauxly.spartan
+          APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "Spartan.app" | head -n 1)
+
+          mkdir -p package/Applications
+
+          cp -R "$APP_PATH" package/Applications/
+
+      - name: Create DEBIAN control
+        run: |
+          mkdir -p package/DEBIAN
+
+          cat > package/DEBIAN/control <<EOF
+          Package: com.spartan.filemanager
           Name: Spartan
-          Version: 1.0.0-${{ github.run_number }}
-          Architecture: iphoneos-arm64
-          Maintainer: Fauxly
-          Description: File Manager for Apple TV 4K (Rootless)
-          Author: Fauxly
-          Section: Applications
-          Depends: firmware (>= 15.0)
-          Icon: https://raw.githubusercontent.com/${{ github.repository }}/main/icon.png
-          EOF
-
-      - name: Build .deb package
-        run: |
-          mkdir -p debs
-          # Собираем пакет
-          dpkg-deb -Zxz --root-owner-group -b layout debs/spartan_rootless.deb
-
-      - name: Generate Repository Indexes
-        run: |
-          # Сканируем папку debs и создаем индексы для PurePkg
-          dpkg-scanpackages -m debs > Packages
-          bzip2 -c Packages > Packages.bz2
-          
-          # Создаем файл Release
-          cat <<EOF > Release
-          Origin: Spartan Repo
-          Label: Spartan
-          Suite: stable
           Version: 1.0
-          Codename: ios
-          Architectures: iphoneos-arm64
-          Components: main
-          Description: Официальный репозиторий Spartan для Apple TV 4K
+          Architecture: iphoneos-arm
+          Description: Spartan File Manager for tvOS
+          Maintainer: Spartan
+          Author: Spartan
+          Section: Applications
+          Depends: firmware
           EOF
 
-      - name: Deploy to GitHub Pages
-        uses: JamesIves/github-pages-deploy-action@v4
+      - name: Build DEB
+        run: |
+          brew install dpkg
+
+          dpkg-deb --build package Spartan.deb
+
+      - name: Upload DEB
+        uses: actions/upload-artifact@v4
         with:
-          folder: .
-          branch: gh-pages # Репозиторий будет доступен через эту ветку
-          clean: false
+          name: Spartan-DEB
+          path: Spartan.deb
