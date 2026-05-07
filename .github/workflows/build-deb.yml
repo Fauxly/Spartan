@@ -1,4 +1,4 @@
-name: Release Spartan tvOS Repo
+name: Release tvOS Repo
 
 on:
   workflow_dispatch:
@@ -26,9 +26,24 @@ jobs:
         run: |
           mkdir -p repo
 
-          ORIGINAL=$(find debs -name "*.deb" | head -n 1)
+          for file in debs/*.deb; do
 
-          cp "$ORIGINAL" repo/Fauxly-Spartan-tvOS.deb
+            BASENAME=$(basename "$file")
+            LOWER=$(echo "$BASENAME" | tr '[:upper:]' '[:lower:]')
+
+            if [[ "$LOWER" == *"spartan"* ]]; then
+              NEWNAME="com.fauxly.spartan.deb"
+            else
+              NAME=$(basename "$file" .deb)
+              CLEANNAME=$(echo "$NAME" | tr '[:upper:]' '[:lower:]')
+              NEWNAME="com.fauxly.${CLEANNAME}.deb"
+            fi
+
+            cp "$file" "repo/$NEWNAME"
+
+            echo "Copied $file -> repo/$NEWNAME"
+
+          done
 
       - name: Generate Packages
         run: |
@@ -39,35 +54,33 @@ jobs:
 
           apt-ftparchive release . > Release
 
-      - name: Generate SHA256
+      - name: Generate SHA256 Hashes
         run: |
           cd repo
 
-          shasum -a 256 Fauxly-Spartan-tvOS.deb > Fauxly-Spartan-tvOS.deb.sha256
+          for file in *.deb; do
+            shasum -a 256 "$file" > "$file.sha256"
+          done
 
       - name: Create TAR Archive
         run: |
-          tar -czf Fauxly-Spartan-tvOS-Repo.tar.gz repo
+          tar -czf Fauxly-tvOS-Repo.tar.gz repo
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Spartan-tvOS-Repo
+          name: Fauxly-tvOS-Repo
           path: |
             repo/
-            Fauxly-Spartan-tvOS-Repo.tar.gz
+            Fauxly-tvOS-Repo.tar.gz
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: tvos-release-${{ github.run_number }}
-          name: Spartan tvOS Release ${{ github.run_number }}
+          name: Fauxly tvOS Release ${{ github.run_number }}
           files: |
-            repo/Fauxly-Spartan-tvOS.deb
-            repo/Fauxly-Spartan-tvOS.deb.sha256
-            repo/Packages
-            repo/Packages.gz
-            repo/Release
-            Fauxly-Spartan-tvOS-Repo.tar.gz
+            repo/*
+            Fauxly-tvOS-Repo.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
