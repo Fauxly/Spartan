@@ -32,7 +32,7 @@ jobs:
             LOWER=$(echo "$BASENAME" | tr '[:upper:]' '[:lower:]')
 
             if [[ "$LOWER" == *"spartan"* ]]; then
-              NEWNAME="com.fauxly.spartan.deb"
+              NEWNAME="com.fauxly.spartan_1.0_appletvos-arm64.deb"
             else
               NAME=$(basename "$file" .deb)
               CLEANNAME=$(echo "$NAME" | tr '[:upper:]' '[:lower:]')
