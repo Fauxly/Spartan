@@ -1,0 +1,122 @@
+name: Build tvOS Repository
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew install dpkg ldid
+
+      - name: List Xcode schemes
+        run: |
+          xcodebuild -list -project Spartan/Spartan.xcodeproj
+
+      - name: Build tvOS app
+        run: |
+          xcodebuild \
+            -project Spartan/Spartan.xcodeproj \
+            -scheme Spartan \
+            -sdk appletvos \
+            -configuration Release \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Locate built app
+        run: |
+          find ~/Library/Developer/Xcode/DerivedData -name "*.app"
+
+          APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "*.app" | head -n 1)
+
+          echo "APP_PATH=$APP_PATH" >> $GITHUB_ENV
+
+          echo "Found app:"
+          echo "$APP_PATH"
+
+      - name: Create package structure
+        run: |
+          mkdir -p package/Applications
+          mkdir -p package/DEBIAN
+
+      - name: Copy app into package
+        run: |
+          cp -R "$APP_PATH" package/Applications/
+
+      - name: Create control file
+        run: |
+          cat > package/DEBIAN/control << EOF
+          Package: com.fauxly.spartan
+          Name: Spartan
+          Version: 1.0
+          Architecture: appletvos-arm64
+          Description: Spartan for Apple tvOS
+          Maintainer: Fauxly
+          Author: Fauxly
+          Section: Applications
+          Depends: firmware (>= 13.0)
+          EOF
+
+      - name: Sign binaries
+        run: |
+          find package/Applications -type f -perm +111 -exec ldid -S {} \; || true
+
+      - name: Build DEB package
+        run: |
+          dpkg-deb -b package com.fauxly.spartan_1.0_appletvos-arm64.deb
+
+      - name: Create repository structure
+        run: |
+          mkdir -p repo/debs
+
+          cp com.fauxly.spartan_1.0_appletvos-arm64.deb repo/debs/
+
+      - name: Generate Packages
+        run: |
+          dpkg-scanpackages repo/debs /dev/null > repo/Packages
+
+      - name: Generate Packages.gz
+        run: |
+          gzip -kf repo/Packages
+
+      - name: Generate Release file
+        run: |
+          cat > repo/Release << EOF
+          Origin: Fauxly Repo
+          Label: Fauxly Repo
+          Suite: stable
+          Version: 1.0
+          Codename: tvos
+          Architectures: darwin-arm64, appletvos-arm64
+          Components: main
+          Description: Apple TV jailbreak repository
+          EOF
+
+      - name: Verify repository files
+        run: |
+          ls -lah repo
+          ls -lah repo/debs
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.${{ github.run_number }}
+          files: |
+            com.fauxly.spartan_1.0_appletvos-arm64.deb
+            repo/Packages
+            repo/Packages.gz
+            repo/Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
